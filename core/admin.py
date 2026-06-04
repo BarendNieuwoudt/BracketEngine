@@ -102,9 +102,9 @@ class TeamAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
 
 @admin.register(Club)
 class ClubAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
-    list_display = ("name", "visibility", "member_count", "uuid")
+    list_display = ("name", "visibility", "location", "member_count", "uuid")
     list_filter = ("visibility",)
-    search_fields = ("name", "uuid")
+    search_fields = ("name", "email", "phone", "location", "uuid")
     filter_horizontal = ("members",)
 
     @admin.display(description="Members")

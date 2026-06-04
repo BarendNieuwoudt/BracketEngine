@@ -1,6 +1,7 @@
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 class TournamentType(models.TextChoices):
@@ -132,7 +133,15 @@ class Club(models.Model):
             "Private clubs are invite-only."
         ),
     )
-    
+
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=32, blank=True)
+    location = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='Optional. Town or city, e.g. "Cape Town" or "Durbanville".',
+    )
+
     members = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         related_name="clubs",
@@ -141,6 +150,21 @@ class Club(models.Model):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(email="", phone=""),
+                name="club_requires_email_or_phone",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        email = (self.email or "").strip()
+        phone = (self.phone or "").strip()
+        if not email and not phone:
+            raise ValidationError(
+                "Provide at least one contact method: email or phone number."
+            )
 
     def __str__(self):
         return self.name
