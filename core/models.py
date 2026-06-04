@@ -113,10 +113,25 @@ class Team(models.Model):
         return self.name
 
 
+class ClubVisibility(models.TextChoices):
+    PRIVATE = "private", "Private"
+    PUBLIC = "public", "Public"
+
+
 class Club(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     
     name = models.CharField(max_length=200)
+    
+    visibility = models.CharField(
+        max_length=16,
+        choices=ClubVisibility.choices,
+        default=ClubVisibility.PUBLIC,
+        help_text=(
+            "Public clubs can be joined by users (coming soon). "
+            "Private clubs are invite-only."
+        ),
+    )
     
     members = models.ManyToManyField(
         settings.AUTH_USER_MODEL,

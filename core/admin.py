@@ -1,10 +1,15 @@
 from django.contrib import admin
 from django.contrib.auth import admin as auth_admin
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 
 from .models import Club, Match, Profile, Team, Tournament
 
 User = get_user_model()
+
+admin.site.site_header = "BracketEngine - Tournament Management System"
+admin.site.site_title = "BracketEngine"
+admin.site.index_title = "Tournament management"
 
 
 class UUIDOnChangeOnlyMixin:
@@ -28,10 +33,29 @@ class ProfileInline(admin.StackedInline):
 
 class UserAdmin(auth_admin.UserAdmin):
     inlines = [*auth_admin.UserAdmin.inlines, ProfileInline]
+    filter_horizontal = ("user_permissions",)
+    readonly_fields = ("last_login", "date_joined")
+    fieldsets = (
+        (None, {"fields": ("username", "password")}),
+        ("Personal info", {"fields": ("first_name", "last_name", "email")}),
+        (
+            "Permissions",
+            {
+                "fields": (
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                    "user_permissions",
+                ),
+            },
+        ),
+        ("Important dates", {"fields": ("last_login", "date_joined")}),
+    )
 
 
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
+admin.site.unregister(Group)
 
 
 class MatchInline(admin.TabularInline):
@@ -78,7 +102,8 @@ class TeamAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
 
 @admin.register(Club)
 class ClubAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
-    list_display = ("name", "member_count", "uuid")
+    list_display = ("name", "visibility", "member_count", "uuid")
+    list_filter = ("visibility",)
     search_fields = ("name", "uuid")
     filter_horizontal = ("members",)
 
