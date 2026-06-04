@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}BracketEngine{% endblock %}</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/site.css' %}" />
+  </head>
+  <body>
+    <header>
+      <h1><a href="{% url 'home' %}">BracketEngine</a></h1>
+    </header>
+    <main>{% block content %}{% endblock %}</main>
+  </body>
+</html>
