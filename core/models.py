@@ -62,6 +62,21 @@ class Tournament(models.Model):
         ),
     )
 
+    club = models.ForeignKey(
+        "Club",
+        on_delete=models.SET_NULL,
+        related_name="tournaments",
+        null=True,
+        blank=True,
+    )
+
+    players = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="tournaments",
+        blank=True,
+        help_text="Selected when creating the tournament. Used to generate matches.",
+    )
+
     class Meta:
         ordering = ["name"]
 
@@ -87,7 +102,12 @@ class Match(models.Model):
         ordering = ["tournament", "match_number"]
 
     def __str__(self):
-        return f"Match {self.match_number} ({self.tournament.name})"
+        team_names = list(self.teams.order_by("pk").values_list("name", flat=True))
+        if len(team_names) >= 2:
+            return f"{team_names[0]} vs {team_names[1]}"
+        if len(team_names) == 1:
+            return f"{team_names[0]} vs TBD"
+        return f"Match {self.match_number}"
 
 
 class Team(models.Model):

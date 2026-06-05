@@ -1,10 +1,12 @@
 from django.contrib import admin
+from django.contrib import messages
 from django.contrib.auth import admin as auth_admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
+from .forms import TournamentAdminForm
+from .match_generation import generate_tournament_matches
 from .models import Club, Match, Profile, Team, Tournament
-
 User = get_user_model()
 
 admin.site.site_header = "BracketEngine - Tournament Management System"
@@ -70,9 +72,16 @@ class TeamInline(admin.TabularInline):
 
 @admin.register(Tournament)
 class TournamentAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
-    list_display = ("name", "uuid", "type", "sport", "courts", "rounds")
-    list_filter = ("type", "sport")
+    form = TournamentAdminForm
+    list_display = ("name", "club", "type", "sport", "courts", "rounds", "player_count")
+    list_filter = ("type", "sport", "club")
     search_fields = ("name", "uuid")
+    filter_horizontal = ("players",)
+
+    def get_fields(self, request, obj=None):
+        if obj is None:
+            return ("name", "club", "type", "sport", "courts", "rounds", "players")
+        return ("uuid", "name", "club", "type", "sport", "courts", "rounds")
 
     def get_inlines(self, request, obj=None):
         # Hide match inlines until the tournament is saved (add form has obj=None).
@@ -80,20 +89,50 @@ class TournamentAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
             return []
         return [MatchInline]
 
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        if not change:
+            match_count = generate_tournament_matches(form.instance)
+            if match_count:
+                self.message_user(
+                    request,
+                    f"Generated {match_count} matches from the selected players.",
+                    messages.SUCCESS,
+                )
+
+    @admin.display(description="Players")
+    def player_count(self, obj):
+        return obj.players.count()
+
 
 @admin.register(Match)
 class MatchAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
-    list_display = ("match_number", "tournament", "scheduled_at", "uuid")
+    list_display = ("match_name", "match_number", "tournament", "scheduled_at")
     list_filter = ("tournament",)
+    search_fields = (
+        "tournament__name",
+        "teams__name",
+        "teams__members__username",
+        "teams__members__first_name",
+        "teams__members__last_name",
+    )
     inlines = [TeamInline]
+
+    @admin.display(description="Match", ordering="match_number")
+    def match_name(self, obj):
+        return str(obj)
 
 
 @admin.register(Team)
 class TeamAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
-    list_display = ("name", "match", "member_count", "uuid")
-    list_filter = ("match",)
+    list_display = ("name", "tournament_name", "match", "member_count")
+    list_filter = ("match__tournament", "match")
     search_fields = ("name", "uuid")
     filter_horizontal = ("members",)
+
+    @admin.display(description="Tournament", ordering="match__tournament__name")
+    def tournament_name(self, obj):
+        return obj.match.tournament.name
 
     @admin.display(description="Members")
     def member_count(self, obj):
@@ -102,7 +141,7 @@ class TeamAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
 
 @admin.register(Club)
 class ClubAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
-    list_display = ("name", "visibility", "location", "member_count", "uuid")
+    list_display = ("name", "visibility", "location", "member_count")
     list_filter = ("visibility",)
     search_fields = ("name", "email", "phone", "location", "uuid")
     filter_horizontal = ("members",)
