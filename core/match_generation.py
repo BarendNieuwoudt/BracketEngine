@@ -6,20 +6,18 @@ from django.utils import timezone
 
 from .models import Match, Team, TournamentType
 
-SLOT_DURATION = timedelta(hours=1)
-
 
 def _display_name(user):
-    full_name = user.get_full_name().strip()
-    if full_name:
-        return full_name
+    first_name = user.first_name.strip()
+    if first_name:
+        return first_name
     return user.get_username()
 
 
 def _team_name(members):
     if len(members) == 1:
         return _display_name(members[0])
-    return " / ".join(_display_name(member) for member in members)
+    return " & ".join(_display_name(member) for member in members)
 
 
 def _partnership_key(members):
@@ -54,15 +52,16 @@ def _americano_court_pairing(group, round_variant):
     return ([player_a, player_d], [player_b, player_c])
 
 
-def _americano_pairings(tournament, players):
+def _americano_pairings(tournament, players, *, respect_round_cap=True):
     player_list = list(players)
     player_count = len(player_list)
     if player_count < 4:
         return []
 
-    round_count = (
-        tournament.rounds if tournament.rounds > 0 else max(1, player_count - 1)
-    )
+    if respect_round_cap and tournament.rounds > 0:
+        round_count = tournament.rounds
+    else:
+        round_count = max(1, player_count - 1)
     pairings = []
     seen_partnerships = set()
 
@@ -91,7 +90,13 @@ def _player_ids(team_a_members, team_b_members):
     return {member.pk for member in team_a_members + team_b_members}
 
 
-def _schedule_pairings(pairings, courts_count, base_time):
+def _tournament_slot_duration(tournament):
+    game_duration = tournament.game_duration or timedelta(minutes=90)
+    break_duration = tournament.break_duration or timedelta(0)
+    return game_duration + break_duration
+
+
+def _schedule_pairings(pairings, courts_count, base_time, slot_duration):
     """
     Assign each match to a time slot and court. Matches in the same slot run
     concurrently only when they use different courts and share no players.
@@ -131,13 +136,13 @@ def _schedule_pairings(pairings, courts_count, base_time):
             team_a_members,
             team_b_members,
             court_number,
-            base_time + SLOT_DURATION * slot_index,
+            base_time + slot_duration * slot_index,
         )
         for team_a_members, team_b_members, slot_index, court_number in scheduled
     ]
 
 
-def build_match_pairings(tournament):
+def build_match_pairings(tournament, *, respect_round_cap=True):
     players = list(tournament.players.order_by("pk"))
     if len(players) < 2:
         return []
@@ -147,13 +152,24 @@ def build_match_pairings(tournament):
     if tournament.type == TournamentType.SINGLE_ELIMINATION:
         return _single_elimination_pairings(players)
     if tournament.type == TournamentType.AMERICANO:
-        return _americano_pairings(tournament, players)
+        return _americano_pairings(
+            tournament, players, respect_round_cap=respect_round_cap
+        )
     return []
 
 
+def _sync_tournament_round_count(tournament):
+    round_count = tournament.matches.values("scheduled_at").distinct().count()
+    tournament.rounds = round_count
+    tournament.save(update_fields=["rounds"])
+
+
 def _create_matches(tournament, pairings):
-    base_time = timezone.now()
-    schedule = _schedule_pairings(pairings, tournament.courts, base_time)
+    base_time = tournament.starts_at
+    slot_duration = _tournament_slot_duration(tournament)
+    schedule = _schedule_pairings(
+        pairings, tournament.courts, base_time, slot_duration
+    )
 
     for match_number, (
         team_a_members,
@@ -163,15 +179,25 @@ def _create_matches(tournament, pairings):
     ) in enumerate(schedule, start=1):
         match = Match.objects.create(
             tournament=tournament,
+            club=tournament.club,
             match_number=match_number,
             court_number=court_number,
             scheduled_at=scheduled_at,
         )
-        team_a = Team.objects.create(match=match, name=_team_name(team_a_members))
-        team_b = Team.objects.create(match=match, name=_team_name(team_b_members))
+        team_a = Team.objects.create(
+            match=match,
+            club=tournament.club,
+            name=_team_name(team_a_members),
+        )
+        team_b = Team.objects.create(
+            match=match,
+            club=tournament.club,
+            name=_team_name(team_b_members),
+        )
         team_a.members.set(team_a_members)
         team_b.members.set(team_b_members)
 
+    _sync_tournament_round_count(tournament)
     return len(schedule)
 
 
@@ -179,7 +205,7 @@ def generate_tournament_matches(tournament):
     if tournament.matches.exists():
         return 0
 
-    pairings = build_match_pairings(tournament)
+    pairings = build_match_pairings(tournament, respect_round_cap=True)
     if not pairings:
         return 0
 
@@ -190,10 +216,14 @@ def regenerate_tournament_matches(tournament):
     tournament.matches.all().delete()
 
     if tournament.players.count() < 2:
+        tournament.rounds = 0
+        tournament.save(update_fields=["rounds"])
         return 0
 
-    pairings = build_match_pairings(tournament)
+    pairings = build_match_pairings(tournament, respect_round_cap=False)
     if not pairings:
+        tournament.rounds = 0
+        tournament.save(update_fields=["rounds"])
         return 0
 
     return _create_matches(tournament, pairings)

@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -45,6 +46,20 @@ class Tournament(models.Model):
         blank=False,
     )
 
+    starts_at = models.DateTimeField(
+        help_text="When the tournament begins. Matches are scheduled from this time.",
+    )
+
+    game_duration = models.DurationField(
+        default=timedelta(minutes=90),
+        help_text="Length of each round of play (hours and minutes).",
+    )
+
+    break_duration = models.DurationField(
+        default=timedelta(0),
+        help_text="Break between rounds (hours and minutes). Use 00:00 for no break.",
+    )
+
     courts = models.PositiveIntegerField(
         default=1,
         validators=[MinValueValidator(1)],
@@ -58,7 +73,8 @@ class Tournament(models.Model):
         null=False,
         blank=False,
         help_text=(
-            "Leave as 0 for no maximum number of rounds."
+            "Leave as 0 for no maximum when first generating matches. "
+            "After matches are created, this is updated to the actual number of rounds."
         ),
     )
 
@@ -86,7 +102,15 @@ class Tournament(models.Model):
 
 class Match(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    
+
+    club = models.ForeignKey(
+        "Club",
+        on_delete=models.SET_NULL,
+        related_name="matches",
+        null=True,
+        blank=True,
+    )
+
     tournament = models.ForeignKey(
         Tournament,
         on_delete=models.CASCADE,
@@ -112,7 +136,15 @@ class Match(models.Model):
 
 class Team(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    
+
+    club = models.ForeignKey(
+        "Club",
+        on_delete=models.SET_NULL,
+        related_name="teams",
+        null=True,
+        blank=True,
+    )
+
     match = models.ForeignKey(
         Match,
         on_delete=models.CASCADE,
