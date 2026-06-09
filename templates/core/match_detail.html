@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}{{ match }} · BracketEngine{% endblock %}
+
+{% block content %}
+  <div class="page-hero">
+    <a class="back-link" href="{% url 'dashboard' %}">
+      <span class="back-arrow" aria-hidden="true"></span>
+      Back to schedule
+    </a>
+    <h1>{{ match }}</h1>
+    <div class="badge-row">
+      <span class="badge badge-lg">{{ match.tournament.name }}</span>
+      <span class="badge badge-lg badge-court">Court {{ match.court_number }}</span>
+    </div>
+  </div>
+
+  <section class="panel">
+    <h3 class="section-title">Match details</h3>
+    <div class="info-grid">
+      <div class="info-tile info-tile-highlight">
+        <span class="info-label">Scheduled</span>
+        <span class="info-value">{{ match.scheduled_at|date:"l, j F Y" }}</span>
+        <span class="info-sub">{{ match.scheduled_at|time:"H:i" }}</span>
+      </div>
+      <div class="info-tile">
+        <span class="info-label">Tournament</span>
+        <span class="info-value">{{ match.tournament.name }}</span>
+      </div>
+      <div class="info-tile">
+        <span class="info-label">Court</span>
+        <span class="info-value">{{ match.court_number }}</span>
+      </div>
+      {% if match.club %}
+        <div class="info-tile">
+          <span class="info-label">Club</span>
+          <span class="info-value">{{ match.club.name }}</span>
+          {% if match.club.location %}
+            <span class="info-sub">{{ match.club.location }}</span>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3 class="section-title">Teams</h3>
+    <div class="team-grid">
+      {% for team in teams %}
+        <article class="team-card">
+          <div class="team-card-head">
+            <span class="team-vs-label">Team</span>
+            <h4>{{ team.name }}</h4>
+          </div>
+          <ul class="player-list">
+            {% for member in team.members.all %}
+              <li>
+                <span class="player-avatar" aria-hidden="true">
+                  {% if member.first_name %}{{ member.first_name|slice:":1" }}{% else %}{{ member.username|slice:":1"|upper }}{% endif %}
+                </span>
+                <span>
+                  {% if member.profile.nickname %}
+                    {{ member.profile.nickname }}
+                  {% elif member.first_name %}
+                    {{ member.first_name }}{% if member.last_name %} {{ member.last_name }}{% endif %}
+                  {% else %}
+                    {{ member.username }}
+                  {% endif %}
+                </span>
+              </li>
+            {% empty %}
+              <li class="muted">No players assigned</li>
+            {% endfor %}
+          </ul>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

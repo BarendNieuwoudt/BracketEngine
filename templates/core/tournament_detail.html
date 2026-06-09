@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}{{ tournament.name }} · BracketEngine{% endblock %}
+
+{% block content %}
+  <div class="page-hero">
+    <a class="back-link" href="{% url 'dashboard' %}">
+      <span class="back-arrow" aria-hidden="true"></span>
+      Back to schedule
+    </a>
+    <h1>{{ tournament.name }}</h1>
+    <div class="badge-row">
+      <span class="badge badge-lg">{{ tournament.get_sport_display }}</span>
+      <span class="badge badge-lg badge-muted">{{ tournament.get_type_display }}</span>
+      {% if tournament.club %}
+        <span class="badge badge-lg badge-muted">{{ tournament.club.name }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <section class="panel">
+    <h3 class="section-title">Tournament details</h3>
+    <div class="info-grid">
+      <div class="info-tile">
+        <span class="info-label">Starts</span>
+        <span class="info-value">{{ tournament.starts_at|date:"l, j F Y" }}</span>
+        <span class="info-sub">{{ tournament.starts_at|time:"H:i" }}</span>
+      </div>
+      <div class="info-tile">
+        <span class="info-label">Game length</span>
+        <span class="info-value">{{ game_duration_display }}</span>
+      </div>
+      <div class="info-tile">
+        <span class="info-label">Break</span>
+        <span class="info-value">{{ break_duration_display }}</span>
+      </div>
+      <div class="info-tile">
+        <span class="info-label">Courts</span>
+        <span class="info-value">{{ tournament.courts }}</span>
+      </div>
+      <div class="info-tile">
+        <span class="info-label">Rounds</span>
+        <span class="info-value">{{ tournament.rounds }}</span>
+      </div>
+      {% if tournament.club and tournament.club.location %}
+        <div class="info-tile">
+          <span class="info-label">Location</span>
+          <span class="info-value">{{ tournament.club.location }}</span>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h3 class="section-title">Upcoming matches</h3>
+      <span class="count-badge">{{ upcoming_matches|length }}</span>
+    </div>
+    {% if upcoming_matches %}
+      <ul class="schedule-list">
+        {% for match in upcoming_matches %}
+          <li>
+            {% if match.uuid in user_match_uuids %}
+              <a class="schedule-card" href="{% url 'match_detail' match.uuid %}">
+            {% else %}
+              <div class="schedule-card schedule-card-static">
+            {% endif %}
+                <div class="schedule-time">
+                  <span class="schedule-day">{{ match.scheduled_at|date:"D" }}</span>
+                  <span class="schedule-date">{{ match.scheduled_at|date:"j M" }}</span>
+                  <span class="schedule-hour">{{ match.scheduled_at|time:"H:i" }}</span>
+                </div>
+                <div class="schedule-body">
+                  <strong>{{ match }}</strong>
+                  <span class="meta-line">Court {{ match.court_number }}</span>
+                </div>
+            {% if match.uuid in user_match_uuids %}
+                <span class="card-chevron" aria-hidden="true"></span>
+              </a>
+            {% else %}
+              </div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">
+        <p>No upcoming matches scheduled.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  {% if past_matches %}
+    <section class="panel">
+      <div class="panel-head">
+        <h3 class="section-title">Past matches</h3>
+      </div>
+      <ul class="schedule-list schedule-list-compact">
+        {% for match in past_matches %}
+          <li>
+            {% if match.uuid in user_match_uuids %}
+              <a class="schedule-card" href="{% url 'match_detail' match.uuid %}">
+            {% else %}
+              <div class="schedule-card schedule-card-static">
+            {% endif %}
+                <div class="schedule-body">
+                  <strong>{{ match }}</strong>
+                  <span class="meta-line">{{ match.scheduled_at|date:"D, j M Y, H:i" }} · Court {{ match.court_number }}</span>
+                </div>
+            {% if match.uuid in user_match_uuids %}
+                <span class="card-chevron" aria-hidden="true"></span>
+              </a>
+            {% else %}
+              </div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+{% endblock %}

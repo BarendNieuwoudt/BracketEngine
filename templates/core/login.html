@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Log in · BracketEngine{% endblock %}
+
+{% block content %}
+  <div class="auth-layout">
+    <section class="auth-aside">
+      <p class="eyebrow">Player portal</p>
+      <h2>Welcome back</h2>
+      <p>Sign in to view your matches, tournaments, and club schedule.</p>
+    </section>
+
+    <section class="panel auth-panel">
+      <h2>Log in</h2>
+      <p class="muted">Use the credentials from your organizer.</p>
+
+      {% if form.errors %}
+        <div class="alert alert-error">Invalid username or password. Please try again.</div>
+      {% endif %}
+
+      <form method="post" class="stacked-form">
+        {% csrf_token %}
+        <div class="field">
+          <label for="id_username">Username</label>
+          <input type="text" name="username" id="id_username" required autofocus />
+        </div>
+        <div class="field">
+          <label for="id_password">Password</label>
+          <input type="password" name="password" id="id_password" required />
+        </div>
+        <button type="submit" class="button button-full">Log in</button>
+      </form>
+    </section>
+  </div>
+{% endblock %}

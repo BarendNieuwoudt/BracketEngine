@@ -4,7 +4,7 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
-from .models import Team, Tournament
+from .models import Profile, Team, Tournament
 
 User = get_user_model()
 
@@ -80,16 +80,22 @@ class TournamentAdminForm(forms.ModelForm):
                 "This tournament has no club, so no players can be selected."
             )
 
-    def save(self, commit=True):
-        obj = super().save(commit=False)
-        obj.game_duration = time_to_duration(self.cleaned_data["game_duration"])
-        obj.break_duration = time_to_duration(
-            self.cleaned_data.get("break_duration")
-        )
-        if commit:
-            obj.save()
-            self.save_m2m()
-        return obj
+    def _get_validation_exclusions(self):
+        exclude = super()._get_validation_exclusions()
+        return exclude | {"game_duration", "break_duration"}
+
+    def _post_clean(self):
+        super()._post_clean()
+        if not hasattr(self, "cleaned_data"):
+            return
+        if "game_duration" in self.cleaned_data:
+            self.instance.game_duration = time_to_duration(
+                self.cleaned_data["game_duration"]
+            )
+        if "break_duration" in self.cleaned_data:
+            self.instance.break_duration = time_to_duration(
+                self.cleaned_data.get("break_duration")
+            )
 
     def clean(self):
         cleaned_data = super().clean()
@@ -214,3 +220,15 @@ class TeamInlineForm(forms.ModelForm):
                 )
 
         return cleaned_data
+
+
+class ProfileForm(forms.ModelForm):
+    class Meta:
+        model = Profile
+        fields = ("nickname",)
+        labels = {
+            "nickname": "Display name",
+        }
+        help_texts = {
+            "nickname": "Optional name shown on your profile.",
+        }

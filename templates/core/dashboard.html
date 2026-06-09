@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard · BracketEngine{% endblock %}
+
+{% block content %}
+  <div class="page-intro">
+    <h1>Dashboard</h1>
+  </div>
+
+  <div class="dashboard-grid">
+    <section class="panel panel-span-full">
+      <div class="panel-head">
+        <h3 class="section-title">Upcoming matches</h3>
+        <span class="count-badge">{{ upcoming_matches|length }}</span>
+      </div>
+      {% if upcoming_matches %}
+        <ul class="schedule-list">
+          {% for match in upcoming_matches %}
+            <li>
+              <a class="schedule-card" href="{% url 'match_detail' match.uuid %}">
+                <div class="schedule-time">
+                  <span class="schedule-day">{{ match.scheduled_at|date:"D" }}</span>
+                  <span class="schedule-date">{{ match.scheduled_at|date:"j M" }}</span>
+                  <span class="schedule-hour">{{ match.scheduled_at|time:"H:i" }}</span>
+                </div>
+                <div class="schedule-body">
+                  <strong>{{ match }}</strong>
+                  <div class="badge-row">
+                    <span class="badge badge-court">Court {{ match.court_number }}</span>
+                    <span class="badge badge-muted">{{ match.tournament.name }}</span>
+                  </div>
+                </div>
+                <span class="card-chevron" aria-hidden="true"></span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty-state">
+          <p>No upcoming matches scheduled.</p>
+        </div>
+      {% endif %}
+    </section>
+
+    {% if past_matches %}
+      <section class="panel panel-span-full">
+        <div class="panel-head">
+          <h3 class="section-title">Recent matches</h3>
+        </div>
+        <ul class="schedule-list schedule-list-compact">
+          {% for match in past_matches %}
+            <li>
+              <a class="schedule-card" href="{% url 'match_detail' match.uuid %}">
+                <div class="schedule-body">
+                  <strong>{{ match }}</strong>
+                  <span class="meta-line">{{ match.scheduled_at|date:"D, j M Y, H:i" }} · {{ match.tournament.name }}</span>
+                </div>
+                <span class="card-chevron" aria-hidden="true"></span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    <section class="panel">
+      <div class="panel-head">
+        <h3 class="section-title">My tournaments</h3>
+        <span class="count-badge">{{ tournaments|length }}</span>
+      </div>
+      {% if tournaments %}
+        <ul class="schedule-list">
+          {% for tournament in tournaments %}
+            <li>
+              <a class="schedule-card" href="{% url 'tournament_detail' tournament.uuid %}">
+                <div class="schedule-icon" aria-hidden="true">🏆</div>
+                <div class="schedule-body">
+                  <strong>{{ tournament.name }}</strong>
+                  <div class="badge-row">
+                    <span class="badge">{{ tournament.get_sport_display }}</span>
+                    <span class="badge badge-muted">{{ tournament.get_type_display }}</span>
+                  </div>
+                  <span class="meta-line">{{ tournament.starts_at|date:"D, j M Y, H:i" }}{% if tournament.club %} · {{ tournament.club.name }}{% endif %}</span>
+                </div>
+                <span class="card-chevron" aria-hidden="true"></span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty-state">
+          <p>Not registered for any tournaments yet.</p>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h3 class="section-title">My clubs</h3>
+        <span class="count-badge">{{ clubs|length }}</span>
+      </div>
+      {% if clubs %}
+        <ul class="schedule-list">
+          {% for club in clubs %}
+            <li>
+              <a class="schedule-card" href="{% url 'club_detail' club.uuid %}">
+                <div class="schedule-icon" aria-hidden="true">🎾</div>
+                <div class="schedule-body">
+                  <strong>{{ club.name }}</strong>
+                  {% if club.location %}
+                    <span class="meta-line">{{ club.location }}</span>
+                  {% endif %}
+                </div>
+                <span class="card-chevron" aria-hidden="true"></span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty-state">
+          <p>Not a member of any clubs yet.</p>
+        </div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

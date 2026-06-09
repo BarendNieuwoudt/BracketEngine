@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}{{ club.name }} · BracketEngine{% endblock %}
+
+{% block content %}
+  <div class="page-hero">
+    <a class="back-link" href="{% url 'dashboard' %}">
+      <span class="back-arrow" aria-hidden="true"></span>
+      Back to schedule
+    </a>
+    <h1>{{ club.name }}</h1>
+    <div class="badge-row">
+      <span class="badge badge-lg">{{ club.get_visibility_display }}</span>
+      {% if club.location %}
+        <span class="badge badge-lg badge-muted">{{ club.location }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <section class="panel">
+    <h3 class="section-title">Club details</h3>
+    <div class="info-grid">
+      {% if club.location %}
+        <div class="info-tile">
+          <span class="info-label">Location</span>
+          <span class="info-value">{{ club.location }}</span>
+        </div>
+      {% endif %}
+      <div class="info-tile">
+        <span class="info-label">Members</span>
+        <span class="info-value">{{ member_count }}</span>
+      </div>
+      <div class="info-tile">
+        <span class="info-label">Visibility</span>
+        <span class="info-value">{{ club.get_visibility_display }}</span>
+      </div>
+      {% if club.email %}
+        <div class="info-tile info-tile-wide">
+          <span class="info-label">Email</span>
+          <span class="info-value">{{ club.email }}</span>
+        </div>
+      {% endif %}
+      {% if club.phone %}
+        <div class="info-tile">
+          <span class="info-label">Phone</span>
+          <span class="info-value">{{ club.phone }}</span>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h3 class="section-title">My tournaments</h3>
+      <span class="count-badge">{{ tournaments|length }}</span>
+    </div>
+    {% if tournaments %}
+      <ul class="schedule-list">
+        {% for tournament in tournaments %}
+          <li>
+            <a class="schedule-card" href="{% url 'tournament_detail' tournament.uuid %}">
+              <div class="schedule-icon" aria-hidden="true">🏆</div>
+              <div class="schedule-body">
+                <strong>{{ tournament.name }}</strong>
+                <div class="badge-row">
+                  <span class="badge">{{ tournament.get_sport_display }}</span>
+                  <span class="badge badge-muted">{{ tournament.get_type_display }}</span>
+                </div>
+                <span class="meta-line">{{ tournament.starts_at|date:"D, j M Y, H:i" }}</span>
+              </div>
+              <span class="card-chevron" aria-hidden="true"></span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">
+        <p>No tournaments at this club yet.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h3 class="section-title">Upcoming matches</h3>
+      <span class="count-badge">{{ upcoming_matches|length }}</span>
+    </div>
+    {% if upcoming_matches %}
+      <ul class="schedule-list">
+        {% for match in upcoming_matches %}
+          <li>
+            <a class="schedule-card" href="{% url 'match_detail' match.uuid %}">
+              <div class="schedule-time">
+                <span class="schedule-day">{{ match.scheduled_at|date:"D" }}</span>
+                <span class="schedule-date">{{ match.scheduled_at|date:"j M" }}</span>
+                <span class="schedule-hour">{{ match.scheduled_at|time:"H:i" }}</span>
+              </div>
+              <div class="schedule-body">
+                <strong>{{ match }}</strong>
+                <span class="meta-line">Court {{ match.court_number }} · {{ match.tournament.name }}</span>
+              </div>
+              <span class="card-chevron" aria-hidden="true"></span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">
+        <p>No upcoming matches at this club.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  {% if past_matches %}
+    <section class="panel">
+      <div class="panel-head">
+        <h3 class="section-title">Past matches</h3>
+      </div>
+      <ul class="schedule-list schedule-list-compact">
+        {% for match in past_matches %}
+          <li>
+            <a class="schedule-card" href="{% url 'match_detail' match.uuid %}">
+              <div class="schedule-body">
+                <strong>{{ match }}</strong>
+                <span class="meta-line">{{ match.scheduled_at|date:"D, j M Y, H:i" }} · {{ match.tournament.name }}</span>
+              </div>
+              <span class="card-chevron" aria-hidden="true"></span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+{% endblock %}

@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from .forms import TournamentAdminForm
 from .match_generation import (
     _match_partnership_key,
     _schedule_pairings,
@@ -10,6 +11,7 @@ from .match_generation import (
     generate_tournament_matches,
     regenerate_tournament_matches,
 )
+from django.urls import reverse
 from .models import Club, Sport, Tournament, TournamentType
 from django.utils import timezone
 
@@ -197,3 +199,166 @@ class MatchSchedulingTests(TestCase):
             self.assertEqual(match.club_id, club.pk)
             for team in match.teams.all():
                 self.assertEqual(team.club_id, club.pk)
+
+
+class TournamentAdminFormTests(TestCase):
+    def test_time_fields_convert_to_duration_on_save(self):
+        from datetime import time
+
+        tournament = Tournament(
+            name="Form test",
+            type=TournamentType.ROUND_ROBIN,
+            sport=Sport.PADEL,
+            starts_at=timezone.now() + timedelta(days=1),
+            courts=1,
+        )
+        form = TournamentAdminForm(
+            data={
+                "name": "Form test",
+                "club": "",
+                "type": TournamentType.ROUND_ROBIN,
+                "sport": Sport.PADEL,
+                "starts_at": tournament.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                "game_duration": "01:30",
+                "break_duration": "00:15",
+                "courts": 1,
+                "rounds": 0,
+            },
+            instance=tournament,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.game_duration, timedelta(hours=1, minutes=30))
+        self.assertEqual(saved.break_duration, timedelta(minutes=15))
+
+
+class PlayerViewTests(TestCase):
+    def setUp(self):
+        self.starts_at = timezone.now() + timedelta(days=1)
+        self.player = User.objects.create_user(
+            "player1",
+            password="pass12345",
+            first_name="Alice",
+        )
+        self.other_player = User.objects.create_user(
+            "player2",
+            password="pass12345",
+        )
+        self.club = Club.objects.create(
+            name="Padel Club",
+            email="club@example.com",
+            location="Cape Town",
+        )
+        self.club.members.add(self.player)
+        self.tournament = Tournament.objects.create(
+            name="Summer Cup",
+            type=TournamentType.ROUND_ROBIN,
+            sport=Sport.PADEL,
+            starts_at=self.starts_at,
+            courts=1,
+            club=self.club,
+        )
+        self.tournament.players.set([self.player, self.other_player])
+        generate_tournament_matches(self.tournament)
+        self.match = self.tournament.matches.first()
+
+    def test_home_redirects_authenticated_users_to_dashboard(self):
+        self.client.login(username="player1", password="pass12345")
+        response = self.client.get(reverse("home"))
+        self.assertRedirects(response, reverse("dashboard"))
+
+    def test_dashboard_requires_login(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertRedirects(response, f"{reverse('login')}?next=/dashboard/")
+
+    def test_dashboard_shows_player_matches_and_clubs(self):
+        self.client.login(username="player1", password="pass12345")
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Summer Cup")
+        self.assertContains(response, "Padel Club")
+        self.assertContains(response, str(self.match))
+
+    def test_player_can_view_own_match_detail(self):
+        self.client.login(username="player1", password="pass12345")
+        response = self.client.get(
+            reverse("match_detail", kwargs={"uuid": self.match.uuid})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Court")
+        self.assertContains(response, "Alice")
+
+    def test_dashboard_links_to_tournament_detail(self):
+        self.client.login(username="player1", password="pass12345")
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            reverse("tournament_detail", kwargs={"uuid": self.tournament.uuid}),
+        )
+
+    def test_player_can_view_registered_tournament_detail(self):
+        self.client.login(username="player1", password="pass12345")
+        response = self.client.get(
+            reverse("tournament_detail", kwargs={"uuid": self.tournament.uuid})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Summer Cup")
+        self.assertContains(response, "Round Robin")
+        self.assertContains(response, str(self.match))
+
+    def test_dashboard_links_to_club_detail(self):
+        self.client.login(username="player1", password="pass12345")
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            reverse("club_detail", kwargs={"uuid": self.club.uuid}),
+        )
+
+    def test_player_can_view_their_club_detail(self):
+        member_only = User.objects.create_user("secretmember", password="pass12345")
+        self.club.members.add(member_only)
+        self.client.login(username="player1", password="pass12345")
+        response = self.client.get(
+            reverse("club_detail", kwargs={"uuid": self.club.uuid})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Padel Club")
+        self.assertContains(response, "Cape Town")
+        self.assertContains(response, "Members")
+        self.assertContains(response, '<span class="info-label">Members</span>')
+        self.assertContains(response, '<span class="info-value">2</span>')
+        self.assertNotContains(response, "secretmember")
+
+    def test_player_cannot_view_club_they_are_not_in(self):
+        outsider = User.objects.create_user("outsider", password="pass12345")
+        self.client.login(username="outsider", password="pass12345")
+        response = self.client.get(
+            reverse("club_detail", kwargs={"uuid": self.club.uuid})
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_player_cannot_view_tournament_they_are_not_in(self):
+        outsider = User.objects.create_user("outsider", password="pass12345")
+        self.client.login(username="outsider", password="pass12345")
+        response = self.client.get(
+            reverse("tournament_detail", kwargs={"uuid": self.tournament.uuid})
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_player_cannot_view_match_they_are_not_in(self):
+        outsider = User.objects.create_user("outsider", password="pass12345")
+        self.client.login(username="outsider", password="pass12345")
+        response = self.client.get(
+            reverse("match_detail", kwargs={"uuid": self.match.uuid})
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_profile_update_nickname(self):
+        self.client.login(username="player1", password="pass12345")
+        response = self.client.post(
+            reverse("profile"),
+            {"nickname": "Ace"},
+        )
+        self.assertRedirects(response, reverse("profile"))
+        self.player.profile.refresh_from_db()
+        self.assertEqual(self.player.profile.nickname, "Ace")

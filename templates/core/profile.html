@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Profile · BracketEngine{% endblock %}
+
+{% block content %}
+  <div class="page-intro">
+    <h1>Profile</h1>
+    <p class="muted">Your account details and display name.</p>
+  </div>
+
+  <section class="panel profile-header-panel">
+    <div class="profile-avatar" aria-hidden="true">
+      {% if user.first_name %}{{ user.first_name|slice:":1" }}{% else %}{{ user.username|slice:":1"|upper }}{% endif %}
+    </div>
+    <div class="profile-summary">
+      <h2>
+        {% if user.profile.nickname %}
+          {{ user.profile.nickname }}
+        {% elif user.first_name %}
+          {{ user.first_name }}{% if user.last_name %} {{ user.last_name }}{% endif %}
+        {% else %}
+          {{ user.username }}
+        {% endif %}
+      </h2>
+      <p class="muted">@{{ user.username }}</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3 class="section-title">Account</h3>
+    <div class="info-grid">
+      <div class="info-tile">
+        <span class="info-label">Username</span>
+        <span class="info-value">{{ user.username }}</span>
+      </div>
+      {% if user.first_name or user.last_name %}
+        <div class="info-tile">
+          <span class="info-label">Name</span>
+          <span class="info-value">{{ user.first_name }} {{ user.last_name }}</span>
+        </div>
+      {% endif %}
+      {% if user.email %}
+        <div class="info-tile info-tile-wide">
+          <span class="info-label">Email</span>
+          <span class="info-value">{{ user.email }}</span>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3 class="section-title">Settings</h3>
+    <form method="post" class="stacked-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="button">Save changes</button>
+    </form>
+  </section>
+{% endblock %}

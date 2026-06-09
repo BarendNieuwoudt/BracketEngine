@@ -3,14 +3,96 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
     <title>{% block title %}BracketEngine{% endblock %}</title>
     {% load static %}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="{% static 'css/site.css' %}" />
+    <script src="{% static 'js/sidebar.js' %}" defer></script>
   </head>
   <body>
-    <header>
-      <h1><a href="{% url 'home' %}">BracketEngine</a></h1>
-    </header>
-    <main>{% block content %}{% endblock %}</main>
+    <div class="page">
+      <header class="site-header">
+        <a class="brand" href="{% url 'home' %}">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-text">BracketEngine</span>
+        </a>
+      </header>
+
+      <div class="app-shell">
+        <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+          <div class="sidebar-head">
+            <span class="sidebar-title">Menu</span>
+            <button
+              type="button"
+              class="sidebar-toggle"
+              id="sidebar-toggle"
+              aria-label="Collapse menu"
+              aria-expanded="true"
+            >
+              <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+            </button>
+          </div>
+          <nav class="sidebar-nav">
+            {% if user.is_authenticated %}
+              <a
+                href="{% url 'dashboard' %}"
+                class="sidebar-link {% if request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}"
+              >
+                <span class="sidebar-icon" aria-hidden="true">📅</span>
+                <span class="sidebar-label">Dashboard</span>
+              </a>
+              <a
+                href="{% url 'profile' %}"
+                class="sidebar-link {% if request.resolver_match.url_name == 'profile' %}is-active{% endif %}"
+              >
+                <span class="sidebar-icon" aria-hidden="true">👤</span>
+                <span class="sidebar-label">Profile</span>
+              </a>
+              <form method="post" action="{% url 'logout' %}" class="sidebar-logout">
+                {% csrf_token %}
+                <button type="submit" class="sidebar-link sidebar-link-button">
+                  <span class="sidebar-icon" aria-hidden="true">🚫</span>
+                  <span class="sidebar-label">Log out</span>
+                </button>
+              </form>
+            {% else %}
+              <a
+                href="{% url 'login' %}"
+                class="sidebar-link {% if request.resolver_match.url_name == 'login' %}is-active{% endif %}"
+              >
+                <span class="sidebar-icon" aria-hidden="true">🔑</span>
+                <span class="sidebar-label">Log in</span>
+              </a>
+            {% endif %}
+          </nav>
+        </aside>
+
+        <div class="page-main">
+          <div class="page-body">
+            {% if messages %}
+              <ul class="messages">
+                {% for message in messages %}
+                  <li class="{{ message.tags }}">{{ message }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+
+            <main>{% block content %}{% endblock %}</main>
+          </div>
+
+          <footer class="site-footer">
+            <span>BracketEngine</span>
+            <span class="footer-dot" aria-hidden="true">·</span>
+            <span>Tournament schedules for players</span>
+          </footer>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

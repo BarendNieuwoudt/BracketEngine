@@ -3,5 +3,34 @@
 {% block title %}BracketEngine{% endblock %}
 
 {% block content %}
-  <p>Django is running. Start building your bracket app from the <code>core</code> app.</p>
+  <section class="landing-hero">
+    <div class="landing-hero-content">
+      <p class="eyebrow">Player portal</p>
+      <h2>Your matches.<br />Your schedule.<br />One place.</h2>
+      <p>
+        See upcoming fixtures, tournament details, and club info.
+        Accounts are set up by your organizer.
+      </p>
+      <div class="hero-actions">
+        <a class="button" href="{% url 'login' %}">Log in to your schedule</a>
+      </div>
+    </div>
+    <div class="landing-features">
+      <article class="feature-card">
+        <span class="feature-icon" aria-hidden="true">📅</span>
+        <h3>Upcoming matches</h3>
+        <p>Court, time, and opponents at a glance.</p>
+      </article>
+      <article class="feature-card">
+        <span class="feature-icon" aria-hidden="true">🏆</span>
+        <h3>Tournaments</h3>
+        <p>Full overview of every event you're in.</p>
+      </article>
+      <article class="feature-card">
+        <span class="feature-icon" aria-hidden="true">🎾</span>
+        <h3>Your clubs</h3>
+        <p>Stay connected to the venues you play at.</p>
+      </article>
+    </div>
+  </section>
 {% endblock %}
