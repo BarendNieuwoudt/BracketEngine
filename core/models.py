@@ -74,7 +74,7 @@ class Tournament(models.Model):
         settings.AUTH_USER_MODEL,
         related_name="tournaments",
         blank=True,
-        help_text="Selected when creating the tournament. Used to generate matches.",
+        help_text="Selected after the tournament is created. Used to generate matches.",
     )
 
     class Meta:

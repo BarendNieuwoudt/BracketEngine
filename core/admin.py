@@ -80,18 +80,23 @@ class TournamentAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
 
     def get_fields(self, request, obj=None):
         if obj is None:
-            return ("name", "club", "type", "sport", "courts", "rounds", "players")
-        return ("uuid", "name", "club", "type", "sport", "courts", "rounds")
+            return ("name", "club", "type", "sport", "courts", "rounds")
+        return ("uuid", "name", "club", "type", "sport", "courts", "rounds", "players")
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(super().get_readonly_fields(request, obj))
+        if obj is not None and "club" not in readonly:
+            readonly.append("club")
+        return tuple(readonly)
 
     def get_inlines(self, request, obj=None):
-        # Hide match inlines until the tournament is saved (add form has obj=None).
-        if obj is None:
+        if obj is None or not obj.players.exists():
             return []
         return [MatchInline]
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
-        if not change:
+        if change:
             match_count = generate_tournament_matches(form.instance)
             if match_count:
                 self.message_user(
@@ -126,7 +131,7 @@ class MatchAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
 @admin.register(Team)
 class TeamAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
     list_display = ("name", "tournament_name", "match", "member_count")
-    list_filter = ("match__tournament", "match")
+    list_filter = ("match__tournament",)
     search_fields = ("name", "uuid")
     filter_horizontal = ("members",)
 
