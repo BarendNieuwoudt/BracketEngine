@@ -6,6 +6,8 @@ from django.utils import timezone
 
 from .models import Match, Team, TournamentType
 
+SLOT_DURATION = timedelta(hours=1)
+
 
 def _display_name(user):
     full_name = user.get_full_name().strip()
@@ -85,6 +87,56 @@ def _americano_pairings(tournament, players):
     return pairings
 
 
+def _player_ids(team_a_members, team_b_members):
+    return {member.pk for member in team_a_members + team_b_members}
+
+
+def _schedule_pairings(pairings, courts_count, base_time):
+    """
+    Assign each match to a time slot and court. Matches in the same slot run
+    concurrently only when they use different courts and share no players.
+    """
+    slots = []
+    scheduled = []
+
+    for team_a_members, team_b_members in pairings:
+        match_players = _player_ids(team_a_members, team_b_members)
+        assigned = False
+
+        for slot_index, slot in enumerate(slots):
+            busy_players = set()
+            used_courts = set()
+            for entry in slot:
+                busy_players |= entry["players"]
+                used_courts.add(entry["court"])
+
+            if match_players & busy_players:
+                continue
+
+            for court in range(1, courts_count + 1):
+                if court not in used_courts:
+                    slot.append({"court": court, "players": match_players})
+                    scheduled.append((team_a_members, team_b_members, slot_index, court))
+                    assigned = True
+                    break
+            if assigned:
+                break
+
+        if not assigned:
+            slots.append([{"court": 1, "players": match_players}])
+            scheduled.append((team_a_members, team_b_members, len(slots) - 1, 1))
+
+    return [
+        (
+            team_a_members,
+            team_b_members,
+            court_number,
+            base_time + SLOT_DURATION * slot_index,
+        )
+        for team_a_members, team_b_members, slot_index, court_number in scheduled
+    ]
+
+
 def build_match_pairings(tournament):
     players = list(tournament.players.order_by("pk"))
     if len(players) < 2:
@@ -99,6 +151,30 @@ def build_match_pairings(tournament):
     return []
 
 
+def _create_matches(tournament, pairings):
+    base_time = timezone.now()
+    schedule = _schedule_pairings(pairings, tournament.courts, base_time)
+
+    for match_number, (
+        team_a_members,
+        team_b_members,
+        court_number,
+        scheduled_at,
+    ) in enumerate(schedule, start=1):
+        match = Match.objects.create(
+            tournament=tournament,
+            match_number=match_number,
+            court_number=court_number,
+            scheduled_at=scheduled_at,
+        )
+        team_a = Team.objects.create(match=match, name=_team_name(team_a_members))
+        team_b = Team.objects.create(match=match, name=_team_name(team_b_members))
+        team_a.members.set(team_a_members)
+        team_b.members.set(team_b_members)
+
+    return len(schedule)
+
+
 def generate_tournament_matches(tournament):
     if tournament.matches.exists():
         return 0
@@ -107,16 +183,17 @@ def generate_tournament_matches(tournament):
     if not pairings:
         return 0
 
-    base_time = timezone.now()
-    for match_number, (team_a_members, team_b_members) in enumerate(pairings, start=1):
-        match = Match.objects.create(
-            tournament=tournament,
-            match_number=match_number,
-            scheduled_at=base_time + timedelta(hours=match_number - 1),
-        )
-        team_a = Team.objects.create(match=match, name=_team_name(team_a_members))
-        team_b = Team.objects.create(match=match, name=_team_name(team_b_members))
-        team_a.members.set(team_a_members)
-        team_b.members.set(team_b_members)
+    return _create_matches(tournament, pairings)
 
-    return len(pairings)
+
+def regenerate_tournament_matches(tournament):
+    tournament.matches.all().delete()
+
+    if tournament.players.count() < 2:
+        return 0
+
+    pairings = build_match_pairings(tournament)
+    if not pairings:
+        return 0
+
+    return _create_matches(tournament, pairings)

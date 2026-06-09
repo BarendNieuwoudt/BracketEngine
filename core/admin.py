@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
 from .forms import TournamentAdminForm
-from .match_generation import generate_tournament_matches
+from .match_generation import generate_tournament_matches, regenerate_tournament_matches
 from .models import Club, Match, Profile, Team, Tournament
 User = get_user_model()
 
@@ -85,8 +85,10 @@ class TournamentAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         readonly = list(super().get_readonly_fields(request, obj))
-        if obj is not None and "club" not in readonly:
-            readonly.append("club")
+        if obj is not None:
+            for field in ("club", "sport", "type"):
+                if field not in readonly:
+                    readonly.append(field)
         return tuple(readonly)
 
     def get_inlines(self, request, obj=None):
@@ -94,16 +96,57 @@ class TournamentAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
             return []
         return [MatchInline]
 
+    def save_model(self, request, obj, form, change):
+        if change and obj.pk:
+            previous = Tournament.objects.get(pk=obj.pk)
+            self._old_player_ids = set(
+                previous.players.values_list("pk", flat=True)
+            )
+            self._schedule_fields_changed = (
+                previous.courts != obj.courts or previous.rounds != obj.rounds
+            )
+        else:
+            self._old_player_ids = set()
+            self._schedule_fields_changed = False
+        super().save_model(request, obj, form, change)
+
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
-        if change:
-            match_count = generate_tournament_matches(form.instance)
+        if not change:
+            return
+
+        tournament = form.instance
+        new_player_ids = set(tournament.players.values_list("pk", flat=True))
+        players_changed = self._old_player_ids != new_player_ids
+        schedule_fields_changed = self._schedule_fields_changed
+
+        if not players_changed and not schedule_fields_changed:
+            match_count = generate_tournament_matches(tournament)
             if match_count:
                 self.message_user(
                     request,
                     f"Generated {match_count} matches from the selected players.",
                     messages.SUCCESS,
                 )
+            return
+
+        if tournament.players.count() < 2:
+            if tournament.matches.exists():
+                tournament.matches.all().delete()
+                self.message_user(
+                    request,
+                    "Matches removed because fewer than 2 players are selected.",
+                    messages.WARNING,
+                )
+            return
+
+        match_count = regenerate_tournament_matches(tournament)
+        if match_count:
+            self.message_user(
+                request,
+                f"Regenerated {match_count} matches.",
+                messages.SUCCESS,
+            )
 
     @admin.display(description="Players")
     def player_count(self, obj):
@@ -112,7 +155,7 @@ class TournamentAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
 
 @admin.register(Match)
 class MatchAdmin(UUIDOnChangeOnlyMixin, admin.ModelAdmin):
-    list_display = ("match_name", "match_number", "tournament", "scheduled_at")
+    list_display = ("match_name", "match_number", "court_number", "tournament", "scheduled_at")
     list_filter = ("tournament",)
     search_fields = (
         "tournament__name",

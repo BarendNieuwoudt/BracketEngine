@@ -94,7 +94,7 @@ class Match(models.Model):
     )
     
     match_number = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    
+    court_number = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     scheduled_at = models.DateTimeField()
 
     class Meta:
