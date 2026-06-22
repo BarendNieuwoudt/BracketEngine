@@ -110,7 +110,6 @@ class Tournament(models.Model):
         blank=True,
         help_text=(
             "Select existing club teams after creating the tournament "
-            "(round robin, or dodgeball single elimination)."
         ),
     )
 
