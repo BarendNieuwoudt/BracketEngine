@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from .forms import TournamentAdminForm
-from .match_generation import (
+from .utilities.match_generation import (
     _match_partnership_key,
     _schedule_pairings,
     build_match_pairings,
@@ -12,10 +12,30 @@ from .match_generation import (
     regenerate_tournament_matches,
 )
 from django.urls import reverse
-from .models import Club, Sport, Tournament, TournamentType
+from .models import Club, Sport, Team, Tournament, TournamentSetupPhase, TournamentType
+from .utilities.tournament_roster import sync_tournament_players_from_roster
 from django.utils import timezone
 
 User = get_user_model()
+
+
+def _register_club_teams(tournament, member_groups, names=None):
+    if tournament.club_id is None:
+        club = Club.objects.create(name="Test Club", email="test@example.com")
+        all_members = [member for group in member_groups for member in group]
+        club.members.set(all_members)
+        tournament.club = club
+        tournament.save(update_fields=["club"])
+    team_ids = []
+    for index, members in enumerate(member_groups):
+        team = Team.objects.create(
+            club=tournament.club,
+            name=names[index] if names else f"Team {index + 1}",
+        )
+        team.members.set(members)
+        team_ids.append(team.pk)
+    tournament.teams.set(team_ids)
+    sync_tournament_players_from_roster(tournament)
 
 
 class AmericanoPairingTests(TestCase):
@@ -37,7 +57,7 @@ class AmericanoPairingTests(TestCase):
 
         pairings = build_match_pairings(tournament)
         partnership_keys = [
-            _match_partnership_key(team_a, team_b) for team_a, team_b in pairings
+            _match_partnership_key(pairing[0], pairing[1]) for pairing in pairings
         ]
 
         self.assertEqual(len(pairings), 3)
@@ -66,7 +86,7 @@ class MatchSchedulingTests(TestCase):
             type=TournamentType.ROUND_ROBIN,
             courts=2,
         )
-        tournament.players.set(self.players)
+        _register_club_teams(tournament, [[p] for p in self.players])
         generate_tournament_matches(tournament)
 
         matches = list(tournament.matches.order_by("scheduled_at", "court_number"))
@@ -93,7 +113,7 @@ class MatchSchedulingTests(TestCase):
             type=TournamentType.ROUND_ROBIN,
             courts=2,
         )
-        tournament.players.set(self.players)
+        _register_club_teams(tournament, [[p] for p in self.players])
         pairings = build_match_pairings(tournament)
 
         schedule = _schedule_pairings(
@@ -102,7 +122,7 @@ class MatchSchedulingTests(TestCase):
             base_time=timezone.now(),
             slot_duration=timedelta(hours=1),
         )
-        court_numbers = {entry[2] for entry in schedule}
+        court_numbers = {entry[6] for entry in schedule}
         self.assertTrue(court_numbers.issubset({1, 2}))
 
     def test_matches_scheduled_from_tournament_start(self):
@@ -115,7 +135,10 @@ class MatchSchedulingTests(TestCase):
             game_duration=game_duration,
             break_duration=break_duration,
         )
-        tournament.players.set(self.players)
+        _register_club_teams(
+            tournament,
+            [[self.players[0]], [self.players[1]], [self.players[2]]],
+        )
         generate_tournament_matches(tournament)
 
         matches = list(tournament.matches.order_by("scheduled_at"))
@@ -131,7 +154,7 @@ class MatchSchedulingTests(TestCase):
             type=TournamentType.ROUND_ROBIN,
             courts=1,
         )
-        tournament.players.set(self.players)
+        _register_club_teams(tournament, [[p] for p in self.players])
         generate_tournament_matches(tournament)
         original_times = list(
             tournament.matches.order_by("scheduled_at").values_list(
@@ -158,7 +181,7 @@ class MatchSchedulingTests(TestCase):
             courts=2,
             rounds=0,
         )
-        tournament.players.set(self.players)
+        _register_club_teams(tournament, [[p] for p in self.players])
         generate_tournament_matches(tournament)
         tournament.refresh_from_db()
 
@@ -173,12 +196,29 @@ class MatchSchedulingTests(TestCase):
             courts=1,
             rounds=0,
         )
-        tournament.players.set(self.players)
+        _register_club_teams(tournament, [[p] for p in self.players])
         generate_tournament_matches(tournament)
         tournament.refresh_from_db()
 
         self.assertEqual(tournament.matches.count(), 6)
         self.assertEqual(tournament.rounds, 6)
+
+    def test_round_robin_match_teams_use_roster_names(self):
+        tournament = self._create_tournament(
+            name="Named teams",
+            type=TournamentType.ROUND_ROBIN,
+            courts=1,
+        )
+        _register_club_teams(
+            tournament,
+            [[self.players[0], self.players[1]], [self.players[2], self.players[3]]],
+            names=["Alice & Bob", "Carol & Dave"],
+        )
+        generate_tournament_matches(tournament)
+
+        match = tournament.matches.first()
+        team_names = list(match.teams.order_by("pk").values_list("name", flat=True))
+        self.assertEqual(set(team_names), {"Alice & Bob", "Carol & Dave"})
 
     def test_generated_matches_and_teams_inherit_tournament_club(self):
         club = Club.objects.create(
@@ -192,7 +232,7 @@ class MatchSchedulingTests(TestCase):
             courts=1,
             club=club,
         )
-        tournament.players.set(self.players)
+        _register_club_teams(tournament, [[p] for p in self.players])
         generate_tournament_matches(tournament)
 
         for match in tournament.matches.all():
@@ -201,7 +241,108 @@ class MatchSchedulingTests(TestCase):
                 self.assertEqual(team.club_id, club.pk)
 
 
+class DodgeballTournamentTests(TestCase):
+    def setUp(self):
+        self.players = [
+            User.objects.create_user(f"player{i}", password="test")
+            for i in range(8)
+        ]
+
+    def test_americano_rejected_for_dodgeball(self):
+        tournament = Tournament(
+            name="Invalid",
+            type=TournamentType.AMERICANO,
+            sport=Sport.DODGEBALL,
+            starts_at=timezone.now() + timedelta(days=1),
+            courts=1,
+        )
+        form = TournamentAdminForm(
+            data={
+                "name": "Invalid",
+                "club": "",
+                "type": TournamentType.AMERICANO,
+                "sport": Sport.DODGEBALL,
+                "starts_at": tournament.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                "game_duration": "01:30",
+                "break_duration": "00:00",
+                "courts": 1,
+                "rounds": 0,
+            },
+            instance=tournament,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Americano", str(form.errors))
+
+    def test_single_elimination_uses_registered_teams(self):
+        tournament = Tournament.objects.create(
+            name="Dodgeball bracket",
+            type=TournamentType.SINGLE_ELIMINATION,
+            sport=Sport.DODGEBALL,
+            starts_at=timezone.now() + timedelta(days=1),
+            courts=1,
+        )
+        _register_club_teams(
+            tournament,
+            [[p] for p in self.players[:4]],
+            names=["A", "B", "C", "D"],
+        )
+        generate_tournament_matches(tournament)
+
+        self.assertEqual(tournament.matches.count(), 2)
+        match = tournament.matches.first()
+        team_names = set(match.teams.values_list("name", flat=True))
+        self.assertEqual(len(team_names), 2)
+        self.assertTrue(team_names.issubset({"A", "B", "C", "D"}))
+
+
 class TournamentAdminFormTests(TestCase):
+    def test_dodgeball_does_not_support_americano(self):
+        tournament = Tournament(
+            name="Rules",
+            type=TournamentType.ROUND_ROBIN,
+            sport=Sport.DODGEBALL,
+            starts_at=timezone.now() + timedelta(days=1),
+            courts=1,
+        )
+        self.assertFalse(tournament.supports_americano())
+        self.assertTrue(tournament.uses_teams())
+
+    def test_padel_single_elimination_uses_players(self):
+        tournament = Tournament(
+            name="Padel SE",
+            type=TournamentType.SINGLE_ELIMINATION,
+            sport=Sport.PADEL,
+            starts_at=timezone.now() + timedelta(days=1),
+            courts=1,
+        )
+        self.assertFalse(tournament.uses_teams())
+
+    def test_setup_phases(self):
+        tournament = Tournament.objects.create(
+            name="Phased",
+            sport=Sport.PADEL,
+        )
+        self.assertEqual(tournament.setup_phase(), TournamentSetupPhase.DETAILS)
+
+        tournament.type = TournamentType.ROUND_ROBIN
+        tournament.starts_at = timezone.now() + timedelta(days=1)
+        tournament.save()
+        self.assertEqual(tournament.setup_phase(), TournamentSetupPhase.ROSTER)
+
+    def test_phase_one_create_form_accepts_basics_only(self):
+        from django.test import RequestFactory
+        from django.contrib.admin.sites import AdminSite
+        from core.admin import TournamentAdmin
+
+        site = AdminSite()
+        admin = TournamentAdmin(Tournament, site)
+        request = RequestFactory().get("/")
+        form_class = admin.get_form(request, obj=None)
+        form = form_class(
+            data={"name": "Summer Cup", "club": "", "sport": Sport.PADEL}
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
     def test_time_fields_convert_to_duration_on_save(self):
         from datetime import time
 
@@ -212,6 +353,7 @@ class TournamentAdminFormTests(TestCase):
             starts_at=timezone.now() + timedelta(days=1),
             courts=1,
         )
+        tournament.save()
         form = TournamentAdminForm(
             data={
                 "name": "Form test",
@@ -249,7 +391,7 @@ class PlayerViewTests(TestCase):
             email="club@example.com",
             location="Cape Town",
         )
-        self.club.members.add(self.player)
+        self.club.members.add(self.player, self.other_player)
         self.tournament = Tournament.objects.create(
             name="Summer Cup",
             type=TournamentType.ROUND_ROBIN,
@@ -258,7 +400,12 @@ class PlayerViewTests(TestCase):
             courts=1,
             club=self.club,
         )
-        self.tournament.players.set([self.player, self.other_player])
+        team_a = Team.objects.create(club=self.club, name="Alice")
+        team_a.members.set([self.player])
+        team_b = Team.objects.create(club=self.club, name="Player 2")
+        team_b.members.set([self.other_player])
+        self.tournament.teams.set([team_a, team_b])
+        sync_tournament_players_from_roster(self.tournament)
         generate_tournament_matches(self.tournament)
         self.match = self.tournament.matches.first()
 
@@ -326,7 +473,7 @@ class PlayerViewTests(TestCase):
         self.assertContains(response, "Cape Town")
         self.assertContains(response, "Members")
         self.assertContains(response, '<span class="info-label">Members</span>')
-        self.assertContains(response, '<span class="info-value">2</span>')
+        self.assertContains(response, '<span class="info-value">3</span>')
         self.assertNotContains(response, "secretmember")
 
     def test_player_cannot_view_club_they_are_not_in(self):
@@ -362,3 +509,41 @@ class PlayerViewTests(TestCase):
         self.assertRedirects(response, reverse("profile"))
         self.player.profile.refresh_from_db()
         self.assertEqual(self.player.profile.nickname, "Ace")
+
+
+class UserAdminLoginAsTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            "staffuser",
+            password="staffpass",
+            is_staff=True,
+        )
+        self.player = User.objects.create_user("portaluser", password="playerpass")
+
+    def test_staff_can_login_as_user_from_admin(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(
+            reverse("admin:auth_user_login_as", args=[self.player.pk])
+        )
+        self.assertRedirects(response, reverse("dashboard"))
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_inactive_user_cannot_be_impersonated(self):
+        self.player.is_active = False
+        self.player.save()
+        self.client.force_login(self.staff)
+        response = self.client.get(
+            reverse("admin:auth_user_login_as", args=[self.player.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("admin:auth_user_changelist"))
+
+    def test_non_staff_cannot_use_login_as(self):
+        outsider = User.objects.create_user("outsider", password="pass")
+        self.client.force_login(outsider)
+        response = self.client.get(
+            reverse("admin:auth_user_login_as", args=[self.player.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response.url)

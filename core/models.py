@@ -5,6 +5,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+
+
 class TournamentType(models.TextChoices):
     AMERICANO = "americano", "Americano"
     ROUND_ROBIN = "round-robin", "Round Robin"
@@ -13,6 +15,13 @@ class TournamentType(models.TextChoices):
 
 class Sport(models.TextChoices):
     PADEL = "padel", "Padel"
+    DODGEBALL = "dodgeball", "Dodgeball"
+
+
+class TournamentSetupPhase(models.TextChoices):
+    SETUP = "setup", "Setup"
+    DETAILS = "details", "Details"
+    ROSTER = "roster", "Roster"
 
 
 class Tournament(models.Model):
@@ -35,8 +44,8 @@ class Tournament(models.Model):
     type = models.CharField(
         max_length=32,
         choices=TournamentType.choices,
-        null=False,
-        blank=False,
+        blank=True,
+        default="",
     )
 
     sport = models.CharField(
@@ -47,6 +56,8 @@ class Tournament(models.Model):
     )
 
     starts_at = models.DateTimeField(
+        null=True,
+        blank=True,
         help_text="When the tournament begins. Matches are scheduled from this time.",
     )
 
@@ -93,11 +104,41 @@ class Tournament(models.Model):
         help_text="Selected after the tournament is created. Used to generate matches.",
     )
 
+    teams = models.ManyToManyField(
+        "Team",
+        related_name="tournaments",
+        blank=True,
+        help_text=(
+            "Select existing club teams after creating the tournament "
+            "(round robin, or dodgeball single elimination)."
+        ),
+    )
+
     class Meta:
         ordering = ["name"]
 
     def __str__(self):
         return self.name
+
+    def setup_phase(self):
+        if not self.pk:
+            return TournamentSetupPhase.SETUP
+        if not self.type or not self.starts_at:
+            return TournamentSetupPhase.DETAILS
+        return TournamentSetupPhase.ROSTER
+
+    def supports_americano(self):
+        return self.sport != Sport.DODGEBALL
+
+    def uses_teams(self):
+        """Register club teams instead of individual players."""
+        if not self.type:
+            return False
+        if self.type == TournamentType.ROUND_ROBIN:
+            return True
+        if self.type == TournamentType.SINGLE_ELIMINATION:
+            return self.sport == Sport.DODGEBALL
+        return False
 
 
 class Match(models.Model):
@@ -116,10 +157,16 @@ class Match(models.Model):
         on_delete=models.CASCADE,
         related_name="matches",
     )
-    
+
     match_number = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     court_number = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     scheduled_at = models.DateTimeField()
+
+    teams = models.ManyToManyField(
+        "Team",
+        related_name="matches",
+        blank=True,
+    )
 
     class Meta:
         verbose_name_plural = "matches"
@@ -135,24 +182,18 @@ class Match(models.Model):
 
 
 class Team(models.Model):
+    """A club team that can be entered into tournaments and play in multiple matches."""
+
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
 
     club = models.ForeignKey(
         "Club",
-        on_delete=models.SET_NULL,
-        related_name="teams",
-        null=True,
-        blank=True,
-    )
-
-    match = models.ForeignKey(
-        Match,
         on_delete=models.CASCADE,
         related_name="teams",
     )
-    
+
     name = models.CharField(max_length=200)
-    
+
     members = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         related_name="teams",
@@ -160,7 +201,7 @@ class Team(models.Model):
     )
 
     class Meta:
-        ordering = ["match", "name"]
+        ordering = ["club", "name"]
 
     def __str__(self):
         return self.name
@@ -173,9 +214,9 @@ class ClubVisibility(models.TextChoices):
 
 class Club(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    
+
     name = models.CharField(max_length=200)
-    
+
     visibility = models.CharField(
         max_length=16,
         choices=ClubVisibility.choices,

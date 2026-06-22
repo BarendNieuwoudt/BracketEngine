@@ -2,9 +2,15 @@ from datetime import timedelta
 from itertools import combinations
 from math import ceil, log2
 
-from django.utils import timezone
+from ..models import Match, Sport, Team, TournamentType
 
-from .models import Match, Team, TournamentType
+
+def tournament_type_uses_teams(tournament_type, sport):
+    if tournament_type == TournamentType.ROUND_ROBIN:
+        return True
+    if tournament_type == TournamentType.SINGLE_ELIMINATION:
+        return sport == Sport.DODGEBALL
+    return False
 
 
 def _display_name(user):
@@ -28,8 +34,40 @@ def _match_partnership_key(team_a_members, team_b_members):
     return tuple(sorted([_partnership_key(team_a_members), _partnership_key(team_b_members)]))
 
 
-def _round_robin_pairings(players):
-    return [([player_a], [player_b]) for player_a, player_b in combinations(players, 2)]
+def _round_robin_roster_pairings(roster_teams):
+    teams = list(roster_teams)
+    return [
+        (
+            list(team_a.members.order_by("pk")),
+            list(team_b.members.order_by("pk")),
+            team_a.name,
+            team_b.name,
+            team_a,
+            team_b,
+        )
+        for team_a, team_b in combinations(teams, 2)
+    ]
+
+
+def _single_elimination_team_pairings(teams):
+    team_list = list(teams)
+    bracket_size = 2 ** ceil(log2(len(team_list)))
+    seeded = team_list + [None] * (bracket_size - len(team_list))
+    pairings = []
+    for index in range(0, bracket_size, 2):
+        team_a, team_b = seeded[index], seeded[index + 1]
+        if team_a and team_b:
+            pairings.append(
+                (
+                    list(team_a.members.order_by("pk")),
+                    list(team_b.members.order_by("pk")),
+                    team_a.name,
+                    team_b.name,
+                    team_a,
+                    team_b,
+                )
+            )
+    return pairings
 
 
 def _single_elimination_pairings(players):
@@ -39,7 +77,7 @@ def _single_elimination_pairings(players):
     for index in range(0, bracket_size, 2):
         player_a, player_b = seeded[index], seeded[index + 1]
         if player_a and player_b:
-            pairings.append(([player_a], [player_b]))
+            pairings.append(([player_a], [player_b], None, None, None, None))
     return pairings
 
 
@@ -81,7 +119,9 @@ def _americano_pairings(tournament, players, *, respect_round_cap=True):
             if match_key in seen_partnerships:
                 continue
             seen_partnerships.add(match_key)
-            pairings.append((team_a_members, team_b_members))
+            pairings.append(
+                (team_a_members, team_b_members, None, None, None, None)
+            )
 
     return pairings
 
@@ -104,7 +144,8 @@ def _schedule_pairings(pairings, courts_count, base_time, slot_duration):
     slots = []
     scheduled = []
 
-    for team_a_members, team_b_members in pairings:
+    for pairing_index, pairing in enumerate(pairings):
+        team_a_members, team_b_members = pairing[0], pairing[1]
         match_players = _player_ids(team_a_members, team_b_members)
         assigned = False
 
@@ -121,7 +162,7 @@ def _schedule_pairings(pairings, courts_count, base_time, slot_duration):
             for court in range(1, courts_count + 1):
                 if court not in used_courts:
                     slot.append({"court": court, "players": match_players})
-                    scheduled.append((team_a_members, team_b_members, slot_index, court))
+                    scheduled.append((pairing_index, slot_index, court))
                     assigned = True
                     break
             if assigned:
@@ -129,26 +170,44 @@ def _schedule_pairings(pairings, courts_count, base_time, slot_duration):
 
         if not assigned:
             slots.append([{"court": 1, "players": match_players}])
-            scheduled.append((team_a_members, team_b_members, len(slots) - 1, 1))
+            scheduled.append((pairing_index, len(slots) - 1, 1))
 
     return [
         (
-            team_a_members,
-            team_b_members,
+            pairings[pairing_index][0],
+            pairings[pairing_index][1],
+            pairings[pairing_index][2] if len(pairings[pairing_index]) > 2 else None,
+            pairings[pairing_index][3] if len(pairings[pairing_index]) > 3 else None,
+            pairings[pairing_index][4] if len(pairings[pairing_index]) > 4 else None,
+            pairings[pairing_index][5] if len(pairings[pairing_index]) > 5 else None,
             court_number,
             base_time + slot_duration * slot_index,
         )
-        for team_a_members, team_b_members, slot_index, court_number in scheduled
+        for pairing_index, slot_index, court_number in scheduled
     ]
 
 
+def _has_enough_participants(tournament):
+    if tournament.uses_teams():
+        return tournament.teams.count() >= 2
+    return tournament.players.count() >= 2
+
+
 def build_match_pairings(tournament, *, respect_round_cap=True):
+    if tournament.uses_teams():
+        selected_teams = tournament.teams.prefetch_related("members")
+        if selected_teams.count() < 2:
+            return []
+        if tournament.type == TournamentType.ROUND_ROBIN:
+            return _round_robin_roster_pairings(selected_teams)
+        if tournament.type == TournamentType.SINGLE_ELIMINATION:
+            return _single_elimination_team_pairings(selected_teams)
+        return []
+
     players = list(tournament.players.order_by("pk"))
     if len(players) < 2:
         return []
 
-    if tournament.type == TournamentType.ROUND_ROBIN:
-        return _round_robin_pairings(players)
     if tournament.type == TournamentType.SINGLE_ELIMINATION:
         return _single_elimination_pairings(players)
     if tournament.type == TournamentType.AMERICANO:
@@ -174,6 +233,10 @@ def _create_matches(tournament, pairings):
     for match_number, (
         team_a_members,
         team_b_members,
+        team_a_name,
+        team_b_name,
+        team_a_entity,
+        team_b_entity,
         court_number,
         scheduled_at,
     ) in enumerate(schedule, start=1):
@@ -184,18 +247,20 @@ def _create_matches(tournament, pairings):
             court_number=court_number,
             scheduled_at=scheduled_at,
         )
-        team_a = Team.objects.create(
-            match=match,
-            club=tournament.club,
-            name=_team_name(team_a_members),
-        )
-        team_b = Team.objects.create(
-            match=match,
-            club=tournament.club,
-            name=_team_name(team_b_members),
-        )
-        team_a.members.set(team_a_members)
-        team_b.members.set(team_b_members)
+        if team_a_entity and team_b_entity:
+            match.teams.add(team_a_entity, team_b_entity)
+        else:
+            team_a = Team.objects.create(
+                club=tournament.club,
+                name=team_a_name or _team_name(team_a_members),
+            )
+            team_b = Team.objects.create(
+                club=tournament.club,
+                name=team_b_name or _team_name(team_b_members),
+            )
+            team_a.members.set(team_a_members)
+            team_b.members.set(team_b_members)
+            match.teams.add(team_a, team_b)
 
     _sync_tournament_round_count(tournament)
     return len(schedule)
@@ -215,7 +280,7 @@ def generate_tournament_matches(tournament):
 def regenerate_tournament_matches(tournament):
     tournament.matches.all().delete()
 
-    if tournament.players.count() < 2:
+    if not _has_enough_participants(tournament):
         tournament.rounds = 0
         tournament.save(update_fields=["rounds"])
         return 0
